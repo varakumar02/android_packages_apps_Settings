@@ -21,6 +21,7 @@ import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
+import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -37,6 +38,7 @@ import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
@@ -58,6 +60,7 @@ import com.android.systemui.biometrics.UdfpsUtils;
 import com.android.systemui.biometrics.shared.model.UdfpsOverlayParams;
 
 import com.google.android.setupcompat.template.FooterBarMixin;
+import com.google.android.setupcompat.template.SystemNavBarMixin;
 import com.google.android.setupdesign.GlifLayout;
 import com.google.android.setupdesign.view.BottomScrollView;
 
@@ -277,6 +280,7 @@ public class UdfpsEnrollEnrollingView extends GlifLayout {
 
         if (!mIsLandscape) {
             adjustPortraitPaddings();
+            disableClippingToRoot(mUdfpsEnrollView);
         } else if (mShouldUseReverseLandscape) {
             swapHeaderAndContent();
         }
@@ -359,6 +363,62 @@ public class UdfpsEnrollEnrollingView extends GlifLayout {
 
         mUdfpsEnrollView.setOverlayParams(params);
         mUdfpsEnrollView.setEnrollHelper(udfpsEnrollHelper);
+    }
+
+    /**
+     * The enroll progress ring is drawn around the UDFPS sensor, which on low sensors sits
+     * below the bottom of the template's content ScrollView (sud_scroll_view ends where the
+     * footer bar starts). Setup wizard themes (GlifV*Theme) keep setupdesign's default
+     * sudClipChildren/sudClipToPadding of true, so the ring is cut at that edge during setup,
+     * while the Settings theme lets it draw past it. Turn clipping off on every container
+     * between the ring and this layout so it draws fully whatever the theme.
+     */
+    private void disableClippingToRoot(View view) {
+        ViewParent parent = view.getParent();
+        while (parent instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) parent;
+            group.setClipChildren(false);
+            group.setClipToPadding(false);
+            if (group == this) {
+                break;
+            }
+            parent = group.getParent();
+        }
+    }
+
+    /**
+     * In portrait the progress ring sits behind the footer bar. GlifLayout repaints the footer
+     * and navigation bar in updateBackgroundColor() from onApplyWindowInsets() (when the window
+     * attaches, after FingerprintEnrollEnrolling made the footer transparent in onCreate()) and,
+     * with GlifExpressive, from onScrolling(). During setup it paints an opaque color (the
+     * partner footer color, or the content background color with dynamic color), which covers
+     * the ring; outside setup it paints transparent. Keep both transparent after each repaint.
+     */
+    @Override
+    public WindowInsets onApplyWindowInsets(WindowInsets insets) {
+        final WindowInsets result = super.onApplyWindowInsets(insets);
+        keepFooterTransparent();
+        return result;
+    }
+
+    @Override
+    protected void onScrolling(boolean isBottom) {
+        super.onScrolling(isBottom);
+        keepFooterTransparent();
+    }
+
+    private void keepFooterTransparent() {
+        if (mIsLandscape) {
+            return;
+        }
+        final FooterBarMixin footerBarMixin = getMixin(FooterBarMixin.class);
+        if (footerBarMixin != null && footerBarMixin.getButtonContainer() != null) {
+            footerBarMixin.getButtonContainer().setBackgroundColor(Color.TRANSPARENT);
+        }
+        final SystemNavBarMixin systemNavBarMixin = getMixin(SystemNavBarMixin.class);
+        if (systemNavBarMixin != null) {
+            systemNavBarMixin.setSystemNavBarBackground(Color.TRANSPARENT);
+        }
     }
 
     private void adjustPortraitPaddings() {
